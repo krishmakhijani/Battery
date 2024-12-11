@@ -1,10 +1,11 @@
+# Install required packages
 # !pip install flask-cors flask pandas numpy torch matplotlib scikit-learn
 
 from flask import Flask, request, jsonify
 from flask_cors import CORS
 import pandas as pd
 import numpy as np
-from datetime import timedelta
+from datetime import datetime, timedelta
 from sklearn.model_selection import train_test_split
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.preprocessing import MinMaxScaler
@@ -17,7 +18,7 @@ import base64
 import threading
 import os
 
-
+# Set Matplotlib backend to non-GUI
 matplotlib.use('Agg')
 
 app = Flask(__name__)
@@ -118,6 +119,13 @@ def convert_duration_to_seconds(duration):
         return minutes * 60 + seconds
     return 0
 
+def custom_date_parser(x):
+    try:
+        return datetime.strptime(x, '%d/%m/%Y %H:%M:%S')
+    except ValueError as e:
+        print(f"Error parsing date: {x}. Error: {str(e)}")
+        return None
+
 @app.route('/', methods=['POST'])
 def upload_file():
     try:
@@ -135,7 +143,12 @@ def upload_file():
         file_path = './data.csv'
         file.save(file_path)
 
-        df = pd.read_csv(file_path, parse_dates=['Timestamp'])
+        # Use a custom date parser with dayfirst=True
+        df = pd.read_csv(
+            file_path,
+            parse_dates=['Timestamp'],
+            date_parser=custom_date_parser
+        )
         processed_df, rf_model = process_uploaded_data(df)
 
         num_new_entries = 500
@@ -229,6 +242,7 @@ def process_and_predict():
     if comparison_df is None or comparison_notdf is None:
         return jsonify({'error': 'No data processed yet. Please upload a file first.'}), 400
 
+    # Generate the plot without displaying it
     plt.figure(figsize=(14, 7))
     plt.plot(comparison_df['Timestamp'], comparison_df['True Battery Level (%)'],
              label='True Battery Level', color='blue')
