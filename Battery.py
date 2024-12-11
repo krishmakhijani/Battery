@@ -1,4 +1,3 @@
-# Install required packages
 # !pip install flask-cors flask pandas numpy torch matplotlib scikit-learn
 
 from flask import Flask, request, jsonify
@@ -18,7 +17,7 @@ import base64
 import threading
 import os
 
-# Set Matplotlib backend to non-GUI
+
 matplotlib.use('Agg')
 
 app = Flask(__name__)
@@ -230,7 +229,6 @@ def process_and_predict():
     if comparison_df is None or comparison_notdf is None:
         return jsonify({'error': 'No data processed yet. Please upload a file first.'}), 400
 
-    # Generate the plot without displaying it
     plt.figure(figsize=(14, 7))
     plt.plot(comparison_df['Timestamp'], comparison_df['True Battery Level (%)'],
              label='True Battery Level', color='blue')
