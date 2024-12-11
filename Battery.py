@@ -118,7 +118,7 @@ def convert_duration_to_seconds(duration):
         return minutes * 60 + seconds
     return 0
 
-@app.route('/upload', methods=['POST'])
+@app.route('/', methods=['POST'])
 def upload_file():
     try:
         if 'file' not in request.files:
