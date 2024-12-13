@@ -1,4 +1,4 @@
-# Install required packages
+
 # !pip install flask-cors flask pandas numpy torch matplotlib scikit-learn
 
 from flask import Flask, request, jsonify
@@ -99,7 +99,7 @@ class xLSTM(nn.Module):
 
 def create_day_sequences(data, timestamps):
     xs, ys, ts = [], [], []
-    for i in range(23, len(data), 24):
+    for i in range(23, len(data),24):
         x = data[i-23:i, :]
         y = data[i, 0]
         xs.append(x)
@@ -193,7 +193,7 @@ def upload_file():
         X_train_tensor = torch.tensor(X_train, dtype=torch.float32)
         y_train_tensor = torch.tensor(y_train, dtype=torch.float32).view(-1, 1)
 
-        num_epochs = 250
+        num_epochs = 200
         for epoch in range(num_epochs):
             model.train()
             optimizer.zero_grad()
@@ -242,12 +242,12 @@ def process_and_predict():
     if comparison_df is None or comparison_notdf is None:
         return jsonify({'error': 'No data processed yet. Please upload a file first.'}), 400
 
-    # Generate the plot without displaying it
+
     plt.figure(figsize=(14, 7))
     plt.plot(comparison_df['Timestamp'], comparison_df['True Battery Level (%)'],
-             label='True Battery Level', color='blue')
+            label='True Battery Level', color='blue')
     plt.plot(comparison_df['Timestamp'], comparison_df['Predicted Battery Level (%)'],
-             label='Predicted Battery Level', color='orange')
+            label='Predicted Battery Level', color='orange')
     plt.title('True vs Predicted Battery Levels with Attention-based xLSTM')
     plt.xlabel('Timestamp')
     plt.ylabel('Battery Level (%)')
@@ -255,7 +255,6 @@ def process_and_predict():
     plt.xticks(rotation=45)
     plt.tight_layout()
 
-    # Save the plot to a buffer instead of displaying it
     img_buf = io.BytesIO()
     plt.savefig(img_buf, format='png')
     img_buf.seek(0)
