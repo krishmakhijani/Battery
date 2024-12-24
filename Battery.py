@@ -22,7 +22,7 @@ CORS(app)
 comparison_df = None
 comparison_notdf = None
 
-def generate_random_data(num_entries=5000):
+def RandomForestEnteries(num_entries=5000):
     print("\nGenerating random dataset with moderate variations...")
     start_date = datetime.now()
     dates = [start_date + timedelta(minutes=15 * i) for i in range(num_entries)]
@@ -146,7 +146,7 @@ def save_model(model, file_path, metadata_file_path):
 @app.route('/', methods=['POST'])
 def upload_file():
     try:
-        data = generate_random_data(5000)
+        data = RandomForestEnteries(5000)
         data.set_index('Timestamp', inplace=True)
 
         data['Total Usage Time'] = data['Total Usage Time'].apply(convert_duration_to_seconds)
