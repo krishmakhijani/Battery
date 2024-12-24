@@ -24,9 +24,8 @@ comparison_notdf = None
 
 def generate_random_data(num_entries=5000):
     print("\nGenerating random dataset with moderate variations...")
-
     start_date = datetime.now()
-    dates = [start_date + timedelta(minutes=15*i) for i in range(num_entries)]
+    dates = [start_date + timedelta(minutes=15 * i) for i in range(num_entries)]
 
     battery_levels = []
     current_level = 80
@@ -107,6 +106,43 @@ def create_day_sequences(data, timestamps):
         ts.append(timestamps[i])
     return np.array(xs), np.array(ys), ts
 
+def load_scaler(scaler_file_path):
+    try:
+        with open(scaler_file_path, 'rb') as f:
+            scaler = pickle.load(f)
+        print(f"Scaler loaded from {scaler_file_path}")
+        return scaler
+    except FileNotFoundError:
+        print("No existing scaler found. Creating a new one.")
+        return MinMaxScaler()
+
+def save_scaler(scaler, scaler_file_path):
+    with open(scaler_file_path, 'wb') as f:
+        pickle.dump(scaler, f)
+    print(f"Scaler saved to {scaler_file_path}")
+
+def load_model_metadata(metadata_file_path):
+    try:
+        with open(metadata_file_path, 'rb') as f:
+            metadata = pickle.load(f)
+        print(f"Loaded model metadata from {metadata_file_path}")
+        return metadata
+    except FileNotFoundError:
+        print(f"No existing metadata found at {metadata_file_path}.")
+        return None
+
+def save_model(model, file_path, metadata_file_path):
+    torch.save(model.state_dict(), file_path)
+    print(f"Model weights saved to {file_path}")
+    metadata = {
+        "input_size": model.lstm.input_size,
+        "hidden_size": model.lstm.hidden_size,
+        "attention_size": model.attention_size,
+    }
+    with open(metadata_file_path, 'wb') as f:
+        pickle.dump(metadata, f)
+    print(f"Model metadata saved to {metadata_file_path}")
+
 @app.route('/', methods=['POST'])
 def upload_file():
     try:
@@ -127,17 +163,31 @@ def upload_file():
 
         cleaned_data = pd.get_dummies(data, columns=['Network Status', 'Power State', 'Bluetooth Connected', 'Location Enabled'], drop_first=True)
 
-        scaler = MinMaxScaler()
+        scaler = load_scaler('scaler.pkl')
         data_scaled = scaler.fit_transform(cleaned_data)
-        data_scaled = pd.DataFrame(data_scaled, columns=cleaned_data.columns, index=cleaned_data.index)
+        save_scaler(scaler, 'scaler.pkl')
 
-        X, y, timestamps = create_day_sequences(data_scaled.values, data.index)
+        X, y, timestamps = create_day_sequences(data_scaled, data.index)
         X_train, X_test, y_train, y_test, ts_train, ts_test = train_test_split(X, y, timestamps, test_size=0.2, shuffle=False, random_state=42)
 
-        input_size = len(cleaned_data.columns)
-        hidden_size = 64
-        attention_size = 32
+        metadata = load_model_metadata('xlstm_metadata.pkl')
+        if metadata:
+            input_size = metadata['input_size']
+            hidden_size = metadata['hidden_size']
+            attention_size = metadata['attention_size']
+            print("Reusing model architecture from saved metadata.")
+        else:
+            input_size = len(cleaned_data.columns)
+            hidden_size = 64
+            attention_size = 32
+            print("No metadata found. Using default architecture.")
+
         model = xLSTM(input_size, hidden_size, attention_size)
+        try:
+            model.load_state_dict(torch.load('xlstm_weights.pth'))
+            print("Loaded existing model weights from xlstm_weights.pth")
+        except FileNotFoundError:
+            print("No existing model weights found. Training from scratch.")
 
         criterion = nn.MSELoss()
         optimizer = torch.optim.Adam(model.parameters(), lr=0.001, weight_decay=1e-4)
@@ -145,32 +195,21 @@ def upload_file():
         X_train_tensor = torch.tensor(X_train, dtype=torch.float32)
         y_train_tensor = torch.tensor(y_train, dtype=torch.float32).view(-1, 1)
 
-        num_epochs = 300
-        print("\nTraining xLSTM model:")
-        print("=" * 50)
+        if metadata is None:
+            print("\nTraining xLSTM model:")
+            pbar = tqdm(range(300), desc='Training', ncols=100)
+            for epoch in pbar:
+                model.train()
+                optimizer.zero_grad()
+                outputs = model(X_train_tensor)
+                loss = criterion(outputs, y_train_tensor)
+                loss.backward()
+                optimizer.step()
+                pbar.set_description(f'Epoch {epoch+1}/300 | Loss: {loss.item():.4f}')
+            pbar.close()
+            save_model(model, 'xlstm_weights.pth', 'xlstm_metadata.pkl')
 
-        pbar = tqdm(range(num_epochs), desc='Training', ncols=100)
-        for epoch in pbar:
-            model.train()
-            optimizer.zero_grad()
-            outputs = model(X_train_tensor)
-            loss = criterion(outputs, y_train_tensor)
-            loss.backward()
-            optimizer.step()
-
-            pbar.set_description(f'Epoch {epoch+1}/{num_epochs} | Loss: {loss.item():.4f}')
-
-        pbar.close()
-
-        # Save model weights using torch.save
-        torch.save(model.state_dict(), 'xlstm_model_weights.pth')
-        print("\nModel weights saved to 'xlstm_model_weights.pth'")
-
-        # Save scaler using pickle
-        with open('scaler.pkl', 'wb') as scaler_file:
-            pickle.dump(scaler, scaler_file)
-        print("Scaler saved to 'scaler.pkl'")
-
+        global comparison_df, comparison_notdf
         X_test_tensor = torch.tensor(X_test, dtype=torch.float32)
         model.eval()
         with torch.no_grad():
@@ -183,14 +222,6 @@ def upload_file():
             np.concatenate((y_test.reshape(-1, 1), np.zeros((y_test.shape[0], len(cleaned_data.columns) - 1))), axis=1)
         )[:, 0]
 
-        random_variations = np.random.normal(0, 2, size=y_pred_inverse.shape)
-        y_pred_inverse += random_variations
-
-        y_pred_inverse = np.clip(y_pred_inverse, 0, 100)
-        y_test_inverse = np.clip(y_test_inverse, 0, 100)
-
-        global comparison_df, comparison_notdf
-
         comparison_notdf = pd.DataFrame({
             'True Battery Level (%)': y_test_inverse,
             'Predicted Battery Level (%)': y_pred_inverse
@@ -202,7 +233,6 @@ def upload_file():
             'Predicted Battery Level (%)': y_pred_inverse
         })
 
-        print("\nProcessing completed successfully!")
         return jsonify({
             'message': 'Processing completed successfully'
         }), 200
@@ -218,21 +248,17 @@ def process_and_predict():
 
     print("\nGenerating visualization...")
     plt.figure(figsize=(16, 8))
-
     plt.plot(comparison_df['Timestamp'], comparison_df['True Battery Level (%)'],
              label='True Battery Level', color='blue', linewidth=1, marker='o', markersize=2)
     plt.plot(comparison_df['Timestamp'], comparison_df['Predicted Battery Level (%)'],
              label='Predicted Battery Level', color='orange', linewidth=1, marker='o', markersize=2)
-
     plt.title('True vs Predicted Battery Levels with Attention-based xLSTM')
     plt.xlabel('Timestamp')
     plt.ylabel('Battery Level (%)')
     plt.legend()
     plt.grid(True, alpha=0.3)
-
     plt.xticks(rotation=45)
     plt.gca().xaxis.set_major_locator(plt.MaxNLocator(20))
-
     plt.tight_layout()
 
     img_buf = io.BytesIO()
@@ -241,15 +267,10 @@ def process_and_predict():
     img_base64 = base64.b64encode(img_buf.read()).decode('utf-8')
     plt.close()
 
-    print("Visualization generated successfully!")
     return jsonify({
         'comparison': comparison_notdf.to_dict(orient='records'),
         'image_base64': img_base64
     })
 
-def run_app():
-    print("\n🚀 Starting Flask server...")
-    app.run(host="0.0.0.0", port=8000)
-
 if __name__ == '__main__':
-    run_app()
+    app.run(host="0.0.0.0", port=8000)
