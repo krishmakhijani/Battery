@@ -23,7 +23,6 @@ comparison_df = None
 comparison_notdf = None
 
 def RandomForestEnteries(num_entries=5000):
-    print("\nGenerating random dataset with moderate variations...")
     start_date = datetime.now()
     dates = [start_date + timedelta(minutes=15 * i) for i in range(num_entries)]
 
